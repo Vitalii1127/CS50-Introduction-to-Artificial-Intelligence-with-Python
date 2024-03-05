@@ -1,5 +1,6 @@
 import pygame
 import sys
+import numpy as np
 
 # Глобальні константи
 WIDTH, HEIGHT = 600, 400
@@ -20,6 +21,9 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 36)
 
+# Ініціалізація Q-таблиці
+Q = np.zeros((HEIGHT // BALL_RADIUS, HEIGHT // BALL_RADIUS, 2))
+
 def draw_ball(ball_pos):
     pygame.draw.circle(screen, WHITE, ball_pos, BALL_RADIUS)
 
@@ -30,20 +34,21 @@ def draw_paddle2(paddle2_pos):
     pygame.draw.rect(screen, WHITE, pygame.Rect((WIDTH - PADDLE_WIDTH, paddle2_pos), (PADDLE_WIDTH, PADDLE_HEIGHT)))
 
 def ai(paddle2_pos, ball_pos, ball_vel):
-    # Прогнозуємо, де м'яч приземлиться
-    future_ball_pos = ball_pos[1] + ball_vel[1]
-    if future_ball_pos < 0:
-        future_ball_pos = -future_ball_pos
-    elif future_ball_pos > HEIGHT:
-        future_ball_pos = HEIGHT - (future_ball_pos - HEIGHT)
+    # Використовуємо Q-таблицю для вибору дії
+    state = (max(0, int(ball_pos[1] // BALL_RADIUS)), max(0, int(paddle2_pos // BALL_RADIUS)))  # Додано перевірку
+    action = np.argmax(Q[state])
+    if action == 0:
+        paddle2_pos -= PADDLE_SPEED
+    else:
+        paddle2_pos += PADDLE_SPEED
+    return paddle2_pos, action  # Повертаємо дію
 
-    if paddle2_pos < future_ball_pos:
-        paddle2_pos += 2
-    if paddle2_pos > future_ball_pos:
-        paddle2_pos -= 2
-    return paddle2_pos
+def update_q_table(paddle2_pos, ball_pos, reward, action):
+    # Оновлюємо Q-таблицю використовуючи формулу Q-навчання
+    state = (max(0, int(ball_pos[1] // BALL_RADIUS)), max(0, int(paddle2_pos // BALL_RADIUS)))  # Додано перевірку
+    Q[state][action] = Q[state][action] + 0.1 * (reward + 0.95 * np.max(Q[state]) - Q[state][action])
 
-def game(difficulty):
+def game():
     ball_pos = [0, 0]
     ball_vel = [0, 0]
     paddle1_vel = 0
@@ -53,18 +58,8 @@ def game(difficulty):
     score1 = 0
     score2 = 0
 
-    # Встановлюємо швидкість м'яча та платформи в залежності від обраного рівня складності
-    if difficulty == 'easy':
-        ball_vel = [2, 2]
-        PADDLE_SPEED = 2
-    elif difficulty == 'medium':
-        ball_vel = [3, 3]
-        PADDLE_SPEED = 3
-    elif difficulty == 'hard':
-        ball_vel = [4, 4]
-        PADDLE_SPEED = 4
-
     ball_pos = [WIDTH // 2, HEIGHT // 2]
+    ball_vel = [2, 2]
 
     while True:
         for event in pygame.event.get():
@@ -87,7 +82,7 @@ def game(difficulty):
         ball_pos[1] += ball_vel[1]
 
         paddle1_pos += paddle1_vel
-        paddle2_pos = ai(paddle2_pos, ball_pos, ball_vel)
+        paddle2_pos, action = ai(paddle2_pos, ball_pos, ball_vel)  # Отримуємо дію
 
         if ball_pos[0] <= BALL_RADIUS + PADDLE_WIDTH and paddle1_pos < ball_pos[1] < paddle1_pos + PADDLE_HEIGHT:
             ball_vel[0] = -ball_vel[0] * SPEED_INCREASE_FACTOR
@@ -101,10 +96,12 @@ def game(difficulty):
             ball_pos = [WIDTH // 2, HEIGHT // 2]
             ball_vel = [-ball_vel[0], ball_vel[1]]
             score2 += 1
+            update_q_table(paddle2_pos, ball_pos, -1, action)
         elif ball_pos[0] >= WIDTH - BALL_RADIUS - PADDLE_WIDTH:
             ball_pos = [WIDTH // 2, HEIGHT // 2]
             ball_vel = [-ball_vel[0], ball_vel[1]]
             score1 += 1
+            update_q_table(paddle2_pos, ball_pos, 1, action)
 
         if ball_pos[1] <= BALL_RADIUS or ball_pos[1] >= HEIGHT - BALL_RADIUS:
             ball_vel[1] = -ball_vel[1] * SPEED_INCREASE_FACTOR
@@ -117,51 +114,5 @@ def game(difficulty):
         pygame.display.update()
         clock.tick(FPS)
 
-def main_menu():
-    title_font = pygame.font.Font(None, 50)
-    button_font = pygame.font.Font(None, 36)
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-
-        screen.fill(BLACK)
-        title_text = title_font.render("Виберіть рівень складності", True, WHITE)
-        screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 20))  # Зменшено відстань
-
-        mx, my = pygame.mouse.get_pos()
-
-        button_width = 200
-        button_height = 50
-        easy_button = pygame.Rect(WIDTH // 2 - button_width // 2, 100, button_width, button_height)  # Зменшено відстань
-        medium_button = pygame.Rect(WIDTH // 2 - button_width // 2, 200, button_width, button_height)
-        hard_button = pygame.Rect(WIDTH // 2 - button_width // 2, 300, button_width, button_height)
-
-        if easy_button.collidepoint((mx, my)):
-            if pygame.mouse.get_pressed()[0]:
-                game('easy')
-        if medium_button.collidepoint((mx, my)):
-            if pygame.mouse.get_pressed()[0]:
-                game('medium')
-        if hard_button.collidepoint((mx, my)):
-            if pygame.mouse.get_pressed()[0]:
-                game('hard')
-
-        pygame.draw.rect(screen, WHITE, easy_button)
-        pygame.draw.rect(screen, WHITE, medium_button)
-        pygame.draw.rect(screen, WHITE, hard_button)
-
-        easy_text = button_font.render("Легко", True, BLACK)
-        screen.blit(easy_text, (WIDTH // 2 - easy_text.get_width() // 2, 115))  # Зменшено відстань
-        medium_text = button_font.render("Середньо", True, BLACK)
-        screen.blit(medium_text, (WIDTH // 2 - medium_text.get_width() // 2, 215))
-        hard_text = button_font.render("Важко", True, BLACK)
-        screen.blit(hard_text, (WIDTH // 2 - hard_text.get_width() // 2, 315))
-
-        pygame.display.update()
-        clock.tick(FPS)
-
 if __name__ == '__main__':
-    main_menu()
+    game()
